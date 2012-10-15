@@ -6,7 +6,7 @@ module CapistranoResque
     def self.load_into(capistrano_config)
       capistrano_config.load do
 
-        _cset(:workers, {"*" => 1})
+        _cset(:workers, {"*" => [1, :interval => 5]})
         _cset(:resque_kill_signal, "QUIT")
 
         def workers_roles
@@ -37,12 +37,16 @@ module CapistranoResque
           task :start, :roles => lambda { workers_roles() }, :on_no_matching_servers => :continue do
             for_each_workers do |role, workers|
               worker_id = 1
-              workers.each_pair do |queue, number_of_workers|
+              workers.each_pair do |queue, pair|
+                number_of_workers, options = *pair
+
+                interval = (options[:interval] || 5).to_f
+
                 puts "Starting #{number_of_workers} worker(s) with QUEUE: #{queue}"
                 number_of_workers.times do
                   pid = "./tmp/pids/resque_work_#{worker_id}.pid"
-                  run("cd #{current_path} && RAILS_ENV=#{rails_env} QUEUE=\"#{queue}\" \
-                   PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 #{fetch(:bundle_cmd, "bundle")} exec rake environment resque:work >> #{shared_path}/log/resque.log 2>&1 &", 
+                  run("cd #{current_path} && RAILS_ENV=#{rails_env} INTERVAL=\"#{interval}\" QUEUE=\"#{queue}\" \
+                   PIDFILE=#{pid} BACKGROUND=yes VERBOSE=1 #{fetch(:bundle_cmd, "bundle")} exec rake environment resque:work >> #{shared_path}/log/resque.log 2>&1 &",
                       :roles => role)
                   worker_id += 1
                 end
@@ -69,7 +73,7 @@ module CapistranoResque
             stop
             start
           end
-          
+
           namespace :scheduler do
             desc "Starts resque scheduler with default configs"
             task :start, :roles => :resque_scheduler do
@@ -84,7 +88,7 @@ PIDFILE=./tmp/pids/scheduler.pid BACKGROUND=yes bundle exec rake resque:schedule
                 #{try_sudo} kill $(cat #{pid}) ; rm #{pid} \
                 ;fi"
               run(command)
-              
+
             end
 
             task :restart do
